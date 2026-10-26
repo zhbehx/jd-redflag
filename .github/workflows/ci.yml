@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 校验 SKILL.md frontmatter
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("SKILL.md").read_text(encoding="utf-8")
+          assert text.startswith("---\n"), "SKILL.md 必须以 YAML frontmatter 开头"
+          fm = text.split("---", 2)[1]
+          for key in ("name:", "description:"):
+              assert key in fm, f"frontmatter 缺少 {key}"
+          print("frontmatter OK")
+          PY
+
+      - name: 脚本语法
+        run: python -m py_compile scripts/*.py
+
+      - name: 生成扫描结果
+        run: |
+          python scripts/scan_jd.py examples/fixtures/jd_red.txt --json > /tmp/red.json || true
+          python scripts/scan_jd.py examples/fixtures/jd_normal.txt --json > /tmp/ok.json || true
+
+      - name: 校准断言
+        run: |
+          python - <<'PY'
+          import json
+          red = json.load(open("/tmp/red.json", encoding="utf-8"))["score"]
+          ok = json.load(open("/tmp/ok.json", encoding="utf-8"))["score"]
+          print(f"高危 JD {red}  正常 JD {ok}")
+          assert red >= 60, f"校准失效：高危 JD 只有 {red} 分"
+          assert ok <= 30, f"校准失效：正常 JD 有 {ok} 分"
+          assert red - ok >= 40, "区分度不足"
+          print("calibration OK")
+          PY
+
+      - name: 阈值退出码
+        run: |
+          python scripts/scan_jd.py examples/fixtures/jd_normal.txt --fail-over 60
+          if python scripts/scan_jd.py examples/fixtures/jd_red.txt --fail-over 60; then
+            echo "高危 JD 没有触发 fail-over" && exit 1
+          else
+            echo "fail-over OK"
+          fi
+
+      - name: README 相对链接可解析
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("README.md").read_text(encoding="utf-8")
+          bad = [m.group(1) for m in re.finditer(r"\]\((\./[^)#]+)\)", text)
+                 if not Path(m.group(1)).exists()]
+          assert not bad, f"README 里有死链: {bad}"
+          print("links OK")
+          PY
