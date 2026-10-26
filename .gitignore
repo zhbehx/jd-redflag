@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# 本地草稿（不要提交真实 JD / 合同 / 聊天记录）
+drafts/
+*.local.md
